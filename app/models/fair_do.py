@@ -152,17 +152,19 @@ class FairDORepository:
     """Model layer: loads FAIR DO directories and extracts model services from metadata."""
 
     def __init__(self, fdo_dir: Path = FDO_DIR):
-        self.fdo_dir = fdo_dir
+        self.fdo_dir = Path(fdo_dir)
         self.fdo_dir.mkdir(parents=True, exist_ok=True)
+        self.upload_dir = self.fdo_dir.parent / "uploads"
+        self.upload_dir.mkdir(parents=True, exist_ok=True)
         self._remote_meta_cache: dict[str, dict[str, Any] | None] = {}
 
     def import_zip(self, zip_file) -> dict[str, Any]:
         """Import one ZIP. If it contains a Knowledge Assembly, resolve local member FDOs."""
-        UPLOAD_DIR.mkdir(exist_ok=True)
+        self.upload_dir.mkdir(parents=True, exist_ok=True)
         import_id = f"import_{uuid.uuid4().hex[:8]}"
         dest = self.fdo_dir / import_id
         dest.mkdir(parents=True, exist_ok=True)
-        zpath = UPLOAD_DIR / f"{import_id}.zip"
+        zpath = self.upload_dir / f"{import_id}.zip"
         zip_file.save(zpath)
         with zipfile.ZipFile(zpath) as zf:
             for member in zf.infolist():

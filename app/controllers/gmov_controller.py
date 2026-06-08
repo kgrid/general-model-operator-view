@@ -10,8 +10,8 @@ from app.models.fair_do import FairDORepository
 class GMOVController:
     """Controller layer: mediates the GMOV view and currently loaded FAIR DO models."""
 
-    def __init__(self):
-        self.repo = FairDORepository()
+    def __init__(self, fdo_dir=None):
+        self.repo = FairDORepository(fdo_dir) if fdo_dir is not None else FairDORepository()
 
     def model_manifest(self) -> dict[str, Any]:
         models = self.repo.loaded_models()
