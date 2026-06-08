@@ -1,5 +1,8 @@
 # General Model Operator View (GMOV)
 
+## Provider of the Experimental Application
+The Knowledge Systems Lab (KSL) at the University of Michigan created GMOV.  It is stricly an experimental application meant to show how metadata that make digital objects FAIR can be used in a "Model Player." 
+
 ## Overview
 
 The General Model Operator View (GMOV) is a prototype environment for loading, inspecting, and executing computational capabilities exposed through FAIR Digital Objects (FDOs). GMOV demonstrates how computational models packaged as FDOs can be made available as agent-usable Services within a Model–View–Controller (MVC) architecture.
