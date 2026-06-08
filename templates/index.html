@@ -1,0 +1,726 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GMOV</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <img src="/static/gmov_logo.png" alt="GMOV logo" class="brand-icon">
+      <div class="brand-text">
+        <div class="brand-expanded">General Model Operator View</div>
+        <div class="brand-title">GMOV</div>
+      </div>
+    </div>
+
+    <form action="/upload" method="post" enctype="multipart/form-data" class="loader" id="loader-form">
+      <span class="loader-label">Load Models</span>
+      <input id="fdo_zip" class="file-input" type="file" name="fdo_zip" multiple accept=".zip" aria-label="Choose FAIR Digital Object ZIP files">
+      <label for="fdo_zip" class="choose-button">Choose FDO</label>
+      <span id="file-summary" class="file-summary">No file selected</span>
+    </form>
+  </header>
+
+  <main class="prototype11-shell">
+    <section class="library-panel models-column" aria-label="Loaded Models">
+      <div class="panel-head">
+        <h2>Models</h2>
+        <span class="panel-count">{{ manifest.model_count }}</span>
+        {% if manifest.model_count > 0 %}<button type="button" class="unload-all-button" onclick="unloadAllModels()">Unload All</button>{% endif %}
+      </div>
+
+      <div class="collection-strip" aria-label="Collections">
+        <button type="button" class="collection-chip active" data-collection="all" onclick="setCollectionFilter('all', this)">All</button>
+        <button type="button" class="collection-chip" data-collection="assembly" onclick="setCollectionFilter('assembly', this)">Assemblies</button>
+        <button type="button" class="collection-chip" data-collection="direct" onclick="setCollectionFilter('direct', this)">Direct</button>
+      </div>
+
+      <div class="facet-row" aria-label="Model filters">
+        <select id="status-filter" aria-label="Status filter" onchange="applyModelFilters()">
+          <option value="all">All status</option>
+          <option value="ready">Ready</option>
+          <option value="partial">Partial</option>
+          <option value="not_executable">Not Ready</option>
+        </select>
+        <select id="type-filter" aria-label="Type filter" onchange="applyModelFilters()">
+          <option value="all">All types</option>
+          <option value="model">Model</option>
+          <option value="model assembly">Model Assembly</option>
+          <option value="knowledge set">Knowledge Set</option>
+        </select>
+      </div>
+
+      <div class="list-search" data-target="models-list">
+        <input type="search" id="models-search" placeholder="Search Models" aria-label="Search Models">
+        <button type="button" class="clear-search" aria-label="Clear Models search" onclick="clearListSearch('models-search')">×</button>
+      </div>
+
+      {% if manifest.model_count == 0 %}
+        <div class="empty-state compact-empty">
+          <strong>No models loaded</strong>
+          <span>Load FAIR Digital Object Models to begin.</span>
+        </div>
+      {% else %}
+        <div class="shade-list" id="models-list">
+          {% for m in manifest.models %}
+            {% set model_kind = m.model_kind or ('Model Assembly' if m.operation_count == 0 or 'assembly' in m.title.lower() or 'knowledge assembly' in m.title.lower() else 'Model') %}
+            <details class="shade model-shade {{ m.validation_status }}" 
+              data-model-dir="{{ m.model_dir }}"
+              data-kind="{{ model_kind | lower }}"
+              data-status="{{ m.validation_status }}"
+              data-parent="{{ m.parent_assembly or '' }}"
+              data-tags="{{ (m.tags or []) | join(' ') | lower }}"
+              data-search="{{ (m.title ~ ' ' ~ (m.version or '') ~ ' ' ~ (m.date or '') ~ ' ' ~ model_kind ~ ' ' ~ (m.validation_status or '') ~ ' ' ~ ((m.tags or []) | join(' ')) ~ ' ' ~ (m.validation_messages | join(' '))) | lower }}">
+              <summary onclick="selectModel('{{ m.model_dir }}')">
+                <span class="chevron" aria-hidden="true"></span>
+                <span class="shade-main">
+                  <span class="shade-title">{{ m.title }}</span>
+                  {% if m.parent_assembly %}<span class="shade-subtitle">Member of {{ m.parent_assembly }}</span>{% endif %}
+                </span>
+                {% if m.has_info_page %}<a class="info-pill" href="{{ m.info_page_url }}" target="_blank" rel="noopener" onclick="event.stopPropagation()">Info</a>{% endif %}
+                <span class="status-pill {{ m.validation_status }}">{% if m.validation_status == 'not_executable' %}Not Ready{% elif m.validation_status == 'partial' %}Partial{% else %}Ready{% endif %}</span>
+                <button type="button" class="unload-button" onclick="unloadModel(event, '{{ m.model_dir }}', '{{ m.title | replace("\'", "\\\'") }}')">Unload</button>
+              </summary>
+              <div class="shade-body">
+                <div class="detail-grid">
+                  <div><span>Version</span><strong>{{ m.version or 'Not specified' }}</strong></div>
+                  <div><span>Date</span><strong>{{ m.date or 'Not specified' }}</strong></div>
+                  <div><span>Services</span><strong>{{ m.executable_operation_count }} ready / {{ m.operation_count }} declared</strong></div>
+                  <div><span>Kind</span><strong>{{ model_kind }}</strong></div>
+                </div>
+                {% if m.tags %}
+                  <div class="tag-row">
+                    {% for tag in m.tags %}<button type="button" class="tag-chip" onclick="setTagFilter('{{ tag }}')">{{ tag }}</button>{% endfor %}
+                  </div>
+                {% endif %}
+                {% if model_kind == 'Model Assembly' %}
+                  <details class="nested-detail">
+                    <summary>Assembly members</summary>
+                    <ul class="assembly-member-list">
+                      {% for child in manifest.models if child.parent_assembly == m.model_dir %}
+                        <li><button type="button" onclick="selectModel('{{ child.model_dir }}')">{{ child.title }}</button></li>
+                      {% else %}
+                        <li>No member Models resolved yet.</li>
+                      {% endfor %}
+                    </ul>
+                  </details>
+                {% endif %}
+                {% if m.validation_messages %}
+                  <details class="nested-detail">
+                    <summary>Validation notes</summary>
+                    <ul>{% for msg in m.validation_messages %}<li>{{ msg }}</li>{% endfor %}</ul>
+                  </details>
+                {% endif %}
+              </div>
+            </details>
+          {% endfor %}
+        </div>
+      {% endif %}
+    </section>
+
+    <div class="right-workspace">
+    <section class="operations-panel" aria-label="Model Services">
+      <div class="panel-head">
+        <h2>Services</h2>
+        <span class="panel-count" id="visible-operation-count">0</span>
+      </div>
+      <div id="selected-model-label" class="selected-model-label">Select a Model to view its services.</div>
+      <div class="list-search" data-target="operations-list">
+        <input type="search" id="operations-search" placeholder="Search Services" aria-label="Search Services">
+        <button type="button" class="clear-search" aria-label="Clear Services search" onclick="clearListSearch('operations-search')">×</button>
+      </div>
+
+      {% if manifest.operation_count == 0 %}
+        <div class="empty-state compact-empty">
+          <strong>No services available</strong>
+          <span>Services appear when loaded Models declare them.</span>
+        </div>
+      {% else %}
+        <div class="shade-list" id="operations-list">
+          {% for op in manifest.operations %}
+            {% set op_key = 'op_' ~ loop.index %}
+            <details class="shade operation-shade {{ op.validation_status }}" 
+              data-op-key="{{ op_key }}"
+              data-model-dir="{{ op.model_dir }}"
+              data-operation-id="{{ op.operation_id }}"
+              data-search="{{ (op.operation_id ~ ' ' ~ op.model_title ~ ' ' ~ (op.operation_type or '') ~ ' ' ~ ((op.dependencies or []) | join(' ')) ~ ' ' ~ (op.summary or '') ~ ' ' ~ (op.description or '') ~ ' ' ~ (op.interface_text or '') ~ ' ' ~ (op.validation_status or '') ~ ' ' ~ (op.validation_messages | join(' '))) | lower }}">
+              <summary>
+                <span class="chevron" aria-hidden="true"></span>
+                <span class="shade-main">
+                  <span class="shade-title">{{ op.operation_id }}</span>
+                  <span class="shade-subtitle">{{ op.operation_type or 'Direct' }}{% if op.dependencies %} · depends on {{ op.dependencies | join(', ') }}{% endif %}</span>
+                </span>
+                <span class="status-pill {{ op.validation_status }}">{{ 'Ready' if op.executable else 'Not Ready' }}</span>
+              </summary>
+              <div class="shade-body">
+                <p class="operation-summary">{{ op.summary or op.description }}</p>
+
+                {% if op.operation_type == 'Orchestration' or op.dependencies %}
+                  <div class="orchestration-box">
+                    <strong>Orchestration service</strong>
+                    <span>This service coordinates other loaded knowledge or model services.</span>
+                    <div class="dependency-row">
+                      {% for dep in op.dependencies %}<span>{{ dep }}</span>{% endfor %}
+                    </div>
+                    {% if op.dependency_details %}
+                      <div class="dependency-detail-list">
+                        {% for dep in op.dependency_details %}
+                          <div class="dependency-detail">
+                            <strong>{{ dep.title or dep.id }}</strong>
+                            <span>{{ dep.loaded_model_count }} of {{ dep.expected_model_count }} referenced Models loaded{% if dep.status %} · {{ dep.status | replace('_', ' ') | title }}{% endif %}</span>
+                          </div>
+                        {% endfor %}
+                      </div>
+                    {% endif %}
+                  </div>
+                {% endif %}
+
+                <details class="nested-detail">
+                  <summary>Model contract</summary>
+                  {% if op.interface_text %}<pre>{{ op.interface_text }}</pre>{% else %}<p class="muted">No interface text declared.</p>{% endif %}
+                </details>
+
+                <details class="nested-detail">
+                  <summary>Provenance</summary>
+                  <div class="detail-grid">
+                    <div><span>Model</span><strong>{{ op.model_title }}</strong></div>
+                    <div><span>Version</span><strong>{{ op.model_version or 'Not specified' }}</strong></div>
+                    <div><span>Date</span><strong>{{ op.model_date or 'Not specified' }}</strong></div>
+                    <div><span>Tests declared</span><strong>{{ op.tests | length }}</strong></div>
+                  </div>
+                  <pre>{{ op.provenance | tojson(indent=2) }}</pre>
+                </details>
+
+                {% if op.validation_messages %}
+                  <details class="nested-detail warning-detail">
+                    <summary>Validation notes</summary>
+                    <ul>{% for msg in op.validation_messages %}<li>{{ msg }}</li>{% endfor %}</ul>
+                  </details>
+                {% endif %}
+
+                <label for="input-{{ loop.index }}">Input JSON</label>
+                <textarea id="input-{{ loop.index }}" spellcheck="false">{% if op.operation_id == 'phenotype_service' %}{"CYP2D6":"*3/*3"}{% elif op.operation_id == 'diplotype_service' %}{"CYP2D6":"Poor metabolizer"}{% elif op.operation_id in ['Pain_Medication_Service', 'all-recommendation'] %}{"diplotype":{"CYP2D6":"*3/*3"}}{% else %}{"CYP2D6":{"phenotype":"Poor metabolizer"}}{% endif %}</textarea>
+                <button onclick="executeOperation('{{ op.operation_id }}', '{{ op.model_dir }}', 'input-{{ loop.index }}', '{{ op.model_title | replace("\'", "\\\'") }}', '{{ op_key }}')" {% if not op.executable %}disabled{% endif %}>Run</button>
+
+                <div class="operation-results">
+                  <div class="operation-results-head">
+                    <strong>Results</strong>
+                    <span class="panel-count" id="{{ op_key }}-count">0</span>
+                  </div>
+                  <div id="{{ op_key }}-results" class="shade-list operation-result-list">
+                    <div class="empty-state compact-empty"><strong>No results</strong><span>Run this service to add results here.</span></div>
+                  </div>
+                </div>
+              </div>
+            </details>
+          {% endfor %}
+        </div>
+      {% endif %}
+    </section>
+
+    <section class="result-panel ask-panel" aria-label="Ask Agent">
+        <div class="panel-head">
+          <h2>Ask Agent</h2>
+          <span class="panel-count" id="gmov-result-count">0</span>
+        </div>
+        <div class="mvc-rule-box">
+          <strong>MVC operating rule</strong>
+          <span>The Agent computes only through Ready Services exposed by loaded Models. The Controller selects, validates, executes, and reports provenance.</span>
+        </div>
+        <div class="ask-row ask-row-v9">
+          <textarea id="askbox" spellcheck="false">What codeine recommendation applies to a CYP2D6 poor metabolizer?</textarea>
+          <div class="ask-actions">
+            <button class="primary-action" onclick="computeGMOV()">Ask Agent to Compute</button>
+          </div>
+        </div>
+        <div class="list-search" data-target="gmov-results">
+          <input type="search" id="gmov-results-search" placeholder="Search Responses" aria-label="Search Agent Responses">
+          <button type="button" class="clear-search" aria-label="Clear Agent Responses search" onclick="clearListSearch('gmov-results-search')">×</button>
+        </div>
+        <div id="gmov-results" class="shade-list result-list tall-result-list">
+          <div class="empty-state compact-empty"><strong>No Agent responses</strong><span>Ask Agent to compute through Ready Services from loaded Models.</span></div>
+        </div>
+    </section>
+    </div>
+  </main>
+
+<script>
+let modelResultCount = 0;
+let gmovResultCount = 0;
+let modelResultHistory = [];
+let gmovResponseHistory = [];
+let activeModelDir = null;
+let activeCollection = 'all';
+let activeTag = '';
+
+function normalizeSearchText(text) { return String(text || '').toLowerCase(); }
+function applyListSearch(inputId) {
+  const input = document.getElementById(inputId);
+  if (!input) return;
+  const searchBox = input.closest('.list-search');
+  const targetId = searchBox ? searchBox.dataset.target : null;
+  const target = targetId ? document.getElementById(targetId) : null;
+  if (!target) return;
+  const terms = normalizeSearchText(input.value).trim().split(/\s+/).filter(Boolean);
+  const items = target.querySelectorAll('.shade');
+  items.forEach(item => {
+    const haystack = normalizeSearchText(item.dataset.search || item.textContent);
+    const keep = terms.length === 0 || terms.every(term => haystack.includes(term));
+    item.dataset.textMatch = keep ? '1' : '0';
+  });
+  applyModelFilters();
+  applyOperationFilters();
+  applyResponseFilters();
+}
+function clearListSearch(inputId) {
+  const input = document.getElementById(inputId);
+  if (!input) return;
+  input.value = '';
+  applyListSearch(inputId);
+  input.focus();
+}
+function wireListSearches() {
+  document.querySelectorAll('.list-search input[type="search"]').forEach(input => {
+    input.addEventListener('input', () => applyListSearch(input.id));
+  });
+}
+document.addEventListener('DOMContentLoaded', () => {
+  wireListSearches();
+  const firstModel = document.querySelector('.model-shade');
+  if (firstModel) selectModel(firstModel.dataset.modelDir);
+  applyModelFilters();
+});
+
+const fileInput = document.getElementById('fdo_zip');
+const fileSummary = document.getElementById('file-summary');
+fileInput.addEventListener('change', () => {
+  const n = fileInput.files.length;
+  fileSummary.textContent = n === 0 ? 'No file selected' : (n === 1 ? fileInput.files[0].name : `${n} files selected`);
+  if (n > 0) {
+    fileSummary.textContent = n === 1 ? `Loading ${fileInput.files[0].name}…` : `Loading ${n} files…`;
+    document.getElementById('loader-form').submit();
+  }
+});
+
+function pretty(data) { return JSON.stringify(data, null, 2); }
+function timeNow() { return new Date().toLocaleTimeString([], {hour: 'numeric', minute: '2-digit'}); }
+function clearEmpty(container) { const empty = container.querySelector('.empty-state'); if (empty) empty.remove(); }
+function escapeHtml(text) { return String(text).replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c])); }
+
+function parseMaybeJson(text) {
+  if (typeof text !== 'string') return text;
+  try { return JSON.parse(text); } catch (_) { return text; }
+}
+function compactValue(value, maxLen=420) {
+  if (value === null || value === undefined) return 'Not provided';
+  if (typeof value === 'string') return value.length > maxLen ? value.slice(0, maxLen) + '…' : value;
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  let text = JSON.stringify(value, null, 2);
+  return text.length > maxLen ? text.slice(0, maxLen) + '…' : text;
+}
+function valueBlockHtml(value) {
+  if (Array.isArray(value)) {
+    const items = value.slice(0, 12).map(v => `<li>${escapeHtml(compactValue(v, 220))}</li>`).join('');
+    const more = value.length > 12 ? `<li>…and ${value.length - 12} more</li>` : '';
+    return `<ul class="result-readable-list">${items}${more}</ul>`;
+  }
+  if (value && typeof value === 'object') {
+    const entries = Object.entries(value).slice(0, 10).map(([k,v]) => `<div><span>${escapeHtml(k)}</span><strong>${escapeHtml(compactValue(v, 260))}</strong></div>`).join('');
+    const more = Object.keys(value).length > 10 ? `<div><span>More</span><strong>Additional fields available in Raw JSON.</strong></div>` : '';
+    return `<div class="result-kv-grid">${entries}${more}</div>`;
+  }
+  return `<p class="result-readable-text">${escapeHtml(compactValue(value))}</p>`;
+}
+function resultSummaryHtml(body) {
+  const data = parseMaybeJson(body);
+  if (!data || typeof data !== 'object') {
+    return `<section class="result-section"><span>Output</span><p class="result-readable-text">${escapeHtml(compactValue(data || body))}</p></section>`;
+  }
+  const sections = [];
+  if (data.error) {
+    sections.push(`<section class="result-section"><span>Error</span><p class="result-readable-text">${escapeHtml(compactValue(data.error))}</p></section>`);
+  }
+  const output = Object.prototype.hasOwnProperty.call(data, 'result') ? data.result : (data.output || data.recommendation || data.answer);
+  if (output !== undefined) {
+    sections.push(`<section class="result-section result-output"><span>Output</span>${valueBlockHtml(output)}</section>`);
+  }
+  if (data.inputs) {
+    sections.push(`<section class="result-section"><span>Inputs</span>${valueBlockHtml(data.inputs)}</section>`);
+  }
+  const serviceBits = [];
+  if (data.model_operation) serviceBits.push(`<div><span>Service</span><strong>${escapeHtml(data.model_operation)}</strong></div>`);
+  if (data.runtime) serviceBits.push(`<div><span>Runtime</span><strong>${escapeHtml(data.runtime)}</strong></div>`);
+  if (data.function) serviceBits.push(`<div><span>Callable</span><strong>${escapeHtml(data.function)}</strong></div>`);
+  const prov = data.provenance || {};
+  if (prov.model_title || prov.title) serviceBits.push(`<div><span>Model</span><strong>${escapeHtml(prov.model_title || prov.title)}</strong></div>`);
+  if (serviceBits.length) sections.push(`<section class="result-section"><span>Execution</span><div class="result-kv-grid">${serviceBits.join('')}</div></section>`);
+  if (Array.isArray(data.execution_trace) && data.execution_trace.length) {
+    sections.push(`<details class="result-trace"><summary>Execution Trace</summary><ul>${data.execution_trace.map(x => `<li>${escapeHtml(x)}</li>`).join('')}</ul></details>`);
+  }
+  if (!sections.length) {
+    sections.push(`<section class="result-section"><span>Output</span>${valueBlockHtml(data)}</section>`);
+  }
+  sections.push(`<details class="raw-detail"><summary>Raw JSON</summary><pre>${escapeHtml(pretty(data))}</pre></details>`);
+  return sections.join('');
+}
+function nextRunNumberForContainer(containerId) {
+  const container = document.getElementById(containerId);
+  if (!container) return 1;
+  return container.querySelectorAll('.result-shade').length + 1;
+}
+
+function setCollectionFilter(collection, button) {
+  activeCollection = collection;
+  activeTag = '';
+  document.querySelectorAll('.collection-chip').forEach(b => b.classList.remove('active'));
+  if (button) button.classList.add('active');
+  applyModelFilters();
+}
+function setTagFilter(tag) {
+  activeTag = normalizeSearchText(tag);
+  document.getElementById('models-search').value = tag;
+  applyListSearch('models-search');
+}
+function applyModelFilters() {
+  const list = document.getElementById('models-list');
+  if (!list) return;
+  const status = document.getElementById('status-filter')?.value || 'all';
+  const type = document.getElementById('type-filter')?.value || 'all';
+  list.querySelectorAll('.model-shade').forEach(item => {
+    const textMatch = item.dataset.textMatch !== '0';
+    const kind = normalizeSearchText(item.dataset.kind);
+    const itemStatus = item.dataset.status || '';
+    const tags = normalizeSearchText(item.dataset.tags || '');
+    const parent = item.dataset.parent || '';
+    let collectionMatch = true;
+    if (activeCollection === 'assembly') collectionMatch = kind === 'model assembly';
+    if (activeCollection === 'direct') collectionMatch = kind === 'model' && !parent;
+    const statusMatch = status === 'all' || itemStatus === status;
+    const typeMatch = type === 'all' || kind === type;
+    const tagMatch = !activeTag || tags.includes(activeTag);
+    item.hidden = !(textMatch && collectionMatch && statusMatch && typeMatch && tagMatch);
+  });
+}
+function selectModel(modelDir) {
+  activeModelDir = modelDir;
+  document.querySelectorAll('.model-shade').forEach(m => m.classList.toggle('selected', m.dataset.modelDir === modelDir));
+  const selected = document.querySelector(`.model-shade[data-model-dir="${CSS.escape(modelDir)}"]`);
+  const title = selected ? selected.querySelector('.shade-title')?.textContent : '';
+  const label = document.getElementById('selected-model-label');
+  if (label) label.textContent = title ? `Showing services for: ${title}` : 'Select a Model to view its services.';
+  applyOperationFilters();
+}
+function applyOperationFilters() {
+  const list = document.getElementById('operations-list');
+  if (!list) return;
+  let visible = 0;
+  const terms = normalizeSearchText(document.getElementById('operations-search')?.value || '').trim().split(/\s+/).filter(Boolean);
+  list.querySelectorAll('.operation-shade').forEach(item => {
+    const modelMatch = activeModelDir && item.dataset.modelDir === activeModelDir;
+    const haystack = normalizeSearchText(item.dataset.search || item.textContent);
+    const textMatch = terms.length === 0 || terms.every(term => haystack.includes(term));
+    const show = !!(modelMatch && textMatch);
+    item.hidden = !show;
+    if (show) visible += 1;
+  });
+  const count = document.getElementById('visible-operation-count');
+  if (count) count.textContent = String(visible);
+}
+function applyResponseFilters() {
+  const list = document.getElementById('gmov-results');
+  if (!list) return;
+  const terms = normalizeSearchText(document.getElementById('gmov-results-search')?.value || '').trim().split(/\s+/).filter(Boolean);
+  list.querySelectorAll('.result-shade').forEach(item => {
+    const haystack = normalizeSearchText(item.dataset.search || item.textContent);
+    item.hidden = !(terms.length === 0 || terms.every(term => haystack.includes(term)));
+  });
+}
+
+function addResult(containerId, countId, kind, title, subtitle, body, open=true) {
+  const container = document.getElementById(containerId);
+  clearEmpty(container);
+  // Newest result always appears first, and older results auto-collapse.
+  container.querySelectorAll('.result-shade').forEach(item => {
+    item.open = false;
+    item.classList.remove('current-result');
+  });
+  const details = document.createElement('details');
+  details.className = 'shade result-shade current-result';
+  details.dataset.search = normalizeSearchText(`${title} ${subtitle} ${kind} ${body}`);
+  details.open = open;
+  details.innerHTML = `
+    <summary>
+      <span class="chevron" aria-hidden="true"></span>
+      <span class="shade-main">
+        <span class="shade-title">${escapeHtml(title)}</span>
+        <span class="shade-subtitle">${escapeHtml(subtitle)}</span>
+      </span>
+      <span class="status-pill ${kind === 'Error' ? 'not_executable' : 'ready'}">${escapeHtml(kind)}</span>
+    </summary>
+    <div class="shade-body">
+      <div class="current-result-card">
+        <span>Current Run</span>
+        ${resultSummaryHtml(body)}
+      </div>
+    </div>`;
+  container.prepend(details);
+  const count = document.getElementById(countId);
+  if (count) count.textContent = container.querySelectorAll('.result-shade').length;
+  applyResponseFilters();
+}
+function rememberModelResult(title, subtitle, body, data, operationId, modelDir) {
+  modelResultHistory.unshift({title, subtitle, body, data, operation_id: operationId, model_dir: modelDir});
+}
+function rememberGMOVResponse(title, subtitle, body, data) {
+  gmovResponseHistory.unshift({title, subtitle, body, data});
+}
+
+async function executeOperation(operationId, modelDir, inputId, modelTitle, opKey) {
+  try {
+    const inputs = JSON.parse(document.getElementById(inputId).value);
+    const resp = await fetch('/api/execute', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({operation_id: operationId, model_dir: modelDir, inputs})
+    });
+    const data = await resp.json();
+    const runNumber = nextRunNumberForContainer(`${opKey}-results`);
+    const title = `Run ${runNumber}: ${operationId}`;
+    const subtitle = `${modelTitle} · ${timeNow()}`;
+    const body = pretty(data);
+    rememberModelResult(title, subtitle, body, data, operationId, modelDir);
+    addResult(`${opKey}-results`, `${opKey}-count`, resp.ok ? 'Ready' : 'Error', title, subtitle, body, true);
+  } catch (err) {
+    const runNumber = nextRunNumberForContainer(`${opKey}-results`);
+    const title = `Run ${runNumber}: execution error`;
+    const subtitle = timeNow();
+    const body = pretty({error: String(err)});
+    rememberModelResult(title, subtitle, body, {error: String(err)}, operationId, modelDir);
+    addResult(`${opKey}-results`, `${opKey}-count`, 'Error', title, subtitle, body, true);
+  }
+}
+
+
+function setAskQuestion(text) {
+  const box = document.getElementById('askbox');
+  if (box) { box.value = text; box.focus(); }
+}
+function textToReadableHtml(text) {
+  const lines = String(text || '').split(/\n/);
+  let html = '';
+  let inList = false;
+  for (const raw of lines) {
+    const line = raw.trim();
+    if (!line) {
+      if (inList) { html += '</ul>'; inList = false; }
+      continue;
+    }
+    if (line.startsWith('• ')) {
+      if (!inList) { html += '<ul class="readable-list">'; inList = true; }
+      html += `<li>${escapeHtml(line.slice(2))}</li>`;
+    } else if (/^[A-Z][A-Za-z ]+:$/.test(line) || ['Models','Services','Generated Results','Result','Provenance','Selected Service','Validated Inputs','Available ready Services'].includes(line)) {
+      if (inList) { html += '</ul>'; inList = false; }
+      html += `<h4>${escapeHtml(line.replace(/:$/, ''))}</h4>`;
+    } else {
+      if (inList) { html += '</ul>'; inList = false; }
+      html += `<p>${escapeHtml(line)}</p>`;
+    }
+  }
+  if (inList) html += '</ul>';
+  return html || '<p>No answer text returned.</p>';
+}
+function shortQuestion(message) {
+  return message.length > 56 ? message.slice(0, 56) + '…' : message;
+}
+function serviceCardHtml(data) {
+  const op = data && data.selected_operation ? data.selected_operation : null;
+  if (!op) return '';
+  const ready = op.executable ? 'Verified loaded Service' : 'Service not Ready';
+  return `<div class="service-card">
+    <span class="service-card-label">Selected Service</span>
+    <strong>${escapeHtml(op.operation_id || 'Service')}</strong>
+    <span>${escapeHtml(op.model_title || 'Loaded Model')}</span>
+    <span class="service-card-status">${escapeHtml(ready)}</span>
+  </div>`;
+}
+function controllerTraceHtml(data) {
+  if (!data || !Array.isArray(data.controller_trace) || data.controller_trace.length === 0) return '';
+  return `<details class="controller-trace"><summary>View Controller Trace</summary><ol>${data.controller_trace.map(x => `<li>${escapeHtml(x)}</li>`).join('')}</ol></details>`;
+}
+function controllerStatusHtml(data) {
+  const status = data && data.status ? data.status : 'unknown';
+  let label = 'Controller Result';
+  let detail = 'The Controller inspected loaded Services.';
+  let cls = 'controller-card';
+  if (status === 'completed') {
+    label = 'Controller Result';
+    detail = 'Selected, validated, and executed one loaded Service.';
+    cls += ' ready-card';
+  } else if (status === 'refused') {
+    label = 'Controller Result';
+    detail = 'No loaded Ready Service was verified for this request.';
+    cls += ' refused-card';
+  } else if (status === 'validation_failed') {
+    detail = 'A Service was selected, but required inputs were not validated.';
+    cls += ' refused-card';
+  } else if (status === 'execution_failed') {
+    detail = 'A Service was selected and validated, but execution failed.';
+    cls += ' refused-card';
+  }
+  return `<div class="${cls}">
+    <span>${escapeHtml(label)}</span>
+    <strong>${escapeHtml(status.replace(/_/g, ' '))}</strong>
+    <em>${escapeHtml(detail)}</em>
+  </div>`;
+}
+function noServiceCardHtml(data) {
+  if (!data || data.selected_operation || data.status !== 'refused') return '';
+  return `<div class="no-service-card">
+    <span>No Service Available</span>
+    <strong>GMOV refused to compute.</strong>
+    <em>The request was not matched to a Ready Service exposed by a loaded Model.</em>
+  </div>`;
+}
+function servicesConsideredHtml(data) {
+  const considered = data && Array.isArray(data.considered_operations) ? data.considered_operations : [];
+  if (!considered.length) return '';
+  const selected = data.selected_operation ? `${data.selected_operation.operation_id}@@${data.selected_operation.model_dir}` : '';
+  const rows = considered.slice(0, 6).map(item => {
+    const key = `${item.operation_id}@@${item.model_dir}`;
+    const chosen = selected && key === selected;
+    const badge = chosen ? 'Selected' : 'Rejected';
+    const cls = chosen ? 'selected-considered' : 'rejected-considered';
+    const reason = Array.isArray(item.reasons) && item.reasons.length ? item.reasons.slice(0, 3).join('; ') : 'lower-ranked match';
+    const ready = item.ready ? 'Ready' : 'Not Ready';
+    return `<li class="${cls}"><span>${escapeHtml(badge)}</span><strong>${escapeHtml(item.operation_id || 'Service')}</strong><em>${escapeHtml(item.model_title || 'Loaded Model')} · ${escapeHtml(ready)} · score ${escapeHtml(item.score)}</em><small>${escapeHtml(reason)}</small></li>`;
+  }).join('');
+  return `<details class="services-considered" open><summary>Services Considered</summary><ul>${rows}</ul></details>`;
+}
+function provenanceCardHtml(data) {
+  const op = data && data.selected_operation ? data.selected_operation : null;
+  if (!op) return '';
+  return `<div class="provenance-card">
+    <span>Computed Using</span>
+    <strong>${escapeHtml(op.model_title || 'Loaded Model')}</strong>
+    <em>Service: ${escapeHtml(op.operation_id || 'Service')}</em>
+    <em>Version: ${escapeHtml(op.model_version || 'Not specified')}</em>
+    <em>Date: ${escapeHtml(op.model_date || 'Not specified')}</em>
+  </div>`;
+}
+function addGMOVCard(message, data, mode, ok=true) {
+  const container = document.getElementById('gmov-results');
+  clearEmpty(container);
+  const count = document.getElementById('gmov-result-count');
+  container.querySelectorAll('.result-shade').forEach(item => {
+    item.open = false;
+    item.classList.remove('current-result');
+  });
+  const details = document.createElement('details');
+  details.className = 'shade result-shade gmov-card current-result';
+  details.open = true;
+  const responseType = data.response_type || (mode === 'compute' ? 'Constrained computation' : 'Model answer');
+  const displayText = data.display_text || data.answer || data.summary_text || pretty(data);
+  details.dataset.search = normalizeSearchText(`${message} ${responseType} ${displayText} ${JSON.stringify(data)}`);
+  const statusText = (!ok || data.status === 'refused' || data.status === 'validation_failed' || data.status === 'execution_failed') ? 'Refused' : (mode === 'compute' ? 'Computed' : 'Answered');
+  const pillClass = statusText === 'Refused' ? 'not_executable' : 'ready';
+  const title = `${mode === 'compute' ? 'Compute' : 'Ask'} ${gmovResultCount}: ${shortQuestion(message)}`;
+  const answerTitle = mode === 'compute' && data.status === 'completed' ? 'Answer from selected Service' : 'Answer';
+  details.innerHTML = `
+    <summary>
+      <span class="chevron" aria-hidden="true"></span>
+      <span class="shade-main">
+        <span class="shade-title">${escapeHtml(title)}</span>
+        <span class="shade-subtitle">${escapeHtml(responseType)} · ${timeNow()}</span>
+      </span>
+      <span class="status-pill ${pillClass}">${escapeHtml(statusText)}</span>
+    </summary>
+    <div class="shade-body qa-card">
+      <section class="qa-question"><span>Question</span><p>${escapeHtml(message)}</p></section>
+      ${controllerStatusHtml(data)}
+      ${noServiceCardHtml(data)}
+      ${serviceCardHtml(data)}
+      ${servicesConsideredHtml(data)}
+      <section class="qa-answer"><span>${escapeHtml(answerTitle)}</span>${textToReadableHtml(displayText)}</section>
+      ${provenanceCardHtml(data)}
+      ${controllerTraceHtml(data)}
+      <details class="raw-detail"><summary>Raw response</summary><pre>${escapeHtml(pretty(data))}</pre></details>
+    </div>`;
+  container.prepend(details);
+  if (count) count.textContent = container.querySelectorAll('.result-shade').length;
+  applyResponseFilters();
+}
+async function computeGMOV() {
+  try {
+    const message = document.getElementById('askbox').value;
+    const resp = await fetch('/api/compute', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({message})
+    });
+    const data = await resp.json();
+    gmovResultCount += 1;
+    const body = data.display_text || pretty(data);
+    const subtitle = data.response_type ? `${data.response_type} · ${timeNow()}` : `Controller Trace · ${timeNow()}`;
+    const title = `Response ${String(gmovResultCount).padStart(3, '0')}: ${shortQuestion(message)}`;
+    rememberGMOVResponse(title, subtitle, body, data);
+    addGMOVCard(message, data, 'compute', resp.ok && data.status !== 'refused');
+    const askboxAfter = document.getElementById('askbox');
+    if (askboxAfter) { askboxAfter.value = ''; askboxAfter.focus(); }
+
+    // Also attach successful compute results to the Service that produced them.
+    if (data.status === 'completed' && data.selected_operation && data.execution) {
+      const op = data.selected_operation;
+      const opEl = document.querySelector(`.operation-shade[data-operation-id="${CSS.escape(op.operation_id)}"][data-model-dir="${CSS.escape(op.model_dir)}"]`);
+      if (opEl) {
+        const opKey = opEl.dataset.opKey;
+        const runNumber = nextRunNumberForContainer(`${opKey}-results`);
+        const opTitle = `Run ${runNumber}: ${op.operation_id}`;
+        const opSubtitle = `${op.model_title} · via Ask Agent · ${timeNow()}`;
+        const opBody = pretty(data.execution);
+        rememberModelResult(opTitle, opSubtitle, opBody, data.execution, op.operation_id, op.model_dir);
+        addResult(`${opKey}-results`, `${opKey}-count`, 'Ready', opTitle, opSubtitle, opBody, false);
+      }
+    }
+  } catch (err) {
+    gmovResultCount += 1;
+    const askboxErr = document.getElementById('askbox');
+    const failedMessage = askboxErr ? askboxErr.value : '';
+    addGMOVCard(failedMessage, {response_type:'Error', display_text:`Ask Agent could not complete that constrained computation.\n\n${String(err)}`, status:'refused'}, 'compute', false);
+    if (askboxErr) { askboxErr.value = ''; askboxErr.focus(); }
+  }
+}
+
+async function unloadModel(event, modelDir, modelTitle) {
+  if (event) event.stopPropagation();
+  const label = modelTitle || modelDir;
+  if (!confirm(`Unload ${label} from GMOV?\n\nThe FDO will remain on disk outside GMOV; this only removes it from the loaded Model library.`)) return;
+  try {
+    const resp = await fetch('/api/unload', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({model_dir: modelDir})
+    });
+    const data = await resp.json();
+    if (!resp.ok) { alert(data.error || 'Unable to unload Model.'); return; }
+    window.location.reload();
+  } catch (err) {
+    alert(`Unable to unload Model: ${err}`);
+  }
+}
+
+async function unloadAllModels() {
+  if (!confirm('Unload all Models from GMOV?\n\nThis resets the current GMOV session library.')) return;
+  try {
+    const resp = await fetch('/api/unload-all', {method: 'POST'});
+    const data = await resp.json();
+    if (!resp.ok) { alert(data.error || 'Unable to unload Models.'); return; }
+    window.location.reload();
+  } catch (err) {
+    alert(`Unable to unload all Models: ${err}`);
+  }
+}
+
+</script>
+</body>
+</html>
